@@ -1,3 +1,4 @@
+
 name: Build Galery Px APK
 
 on:
@@ -31,7 +32,7 @@ jobs:
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
 
           if [ ! -d "$SDK" ]; then
-            echo "::error::Android SDK directory not found: $SDK"
+            echo "::error::Android SDK not found: $SDK"
             exit 1
           fi
 
@@ -63,7 +64,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Locate and extract Android project
+      - name: Locate and extract project
         shell: bash
         run: |
           if [ -f settings.gradle.kts ] || [ -f settings.gradle ]; then
@@ -73,7 +74,7 @@ jobs:
               -iname '*.zip' -print -quit)"
 
             if [ -z "$ZIP" ]; then
-              echo "::error::No project ZIP or Gradle settings found."
+              echo "::error::Project ZIP not found"
               exit 1
             fi
 
@@ -86,41 +87,80 @@ jobs:
               -printf '%h\n' | head -n 1)"
 
             if [ -z "$PROJECT" ]; then
-              echo "::error::Gradle settings not found inside ZIP."
+              echo "::error::Gradle settings not found in ZIP"
               exit 1
             fi
           fi
 
           if [ ! -f "$PROJECT/app/build.gradle.kts" ] && \
              [ ! -f "$PROJECT/app/build.gradle" ]; then
-            echo "::error::App Gradle file not found."
+            echo "::error::App Gradle file not found"
             exit 1
           fi
 
           echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
           echo "Project directory: $PROJECT"
 
-      - name: Fix SecretKeySpec import
+      - name: Fix Java source issues
         shell: bash
         run: |
-          FILE="$PROJECT/app/src/main/java/id/pixelsoft/pixelvault/MainActivity.java"
-
-          if [ ! -f "$FILE" ]; then
-            echo "::error::MainActivity.java not found: $FILE"
-            exit 1
-          fi
-
-          sed -i \
-            's/import javax\.crypto\.SecretKeySpec;/import javax.crypto.spec.SecretKeySpec;/' \
-            "$FILE"
-
-          if grep -q \
-            'import javax.crypto.SecretKeySpec;' "$FILE"; then
-            echo "::error::SecretKeySpec import is still incorrect."
-            exit 1
-          fi
-
-          grep -n 'SecretKeySpec' "$FILE"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import os
+          
+          project = Path(os.environ.get("PROJECT", ""))
+          source = project / "app/src/main/java/id/pixelsoft/pixelvault/MainActivity.java"
+          
+          if not source.is_file():
+              raise SystemExit(f"MainActivity.java not found: {source}")
+          
+          text = source.read_text()
+          
+          # Correct SecretKeySpec import.
+          text = text.replace(
+              "import javax.crypto.SecretKeySpec;",
+              "import javax.crypto.spec.SecretKeySpec;"
+          )
+          
+          lines = text.splitlines()
+          found = False
+          
+          for i, line in enumerate(lines):
+              if "item.addView(button(installed?" in line:
+                  if "installedForAction" in line:
+                      found = True
+                      break
+                  
+                  indent = re.match(r"\s*", line).group(0)
+                  lines.insert(
+                      i,
+                      indent + "final boolean installedForAction = installed;"
+                  )
+                  
+                  lines[i + 1] = re.sub(
+                      r"\binstalled\b",
+                      "installedForAction",
+                      lines[i + 1]
+                  )
+                  
+                  found = True
+                  break
+          
+          if not found:
+              if "installedForAction" not in text:
+                  raise SystemExit(
+                      "Could not locate the expected installed lambda expression. "
+                      "Source layout may differ; refusing an unsafe edit."
+                  )
+          
+          source.write_text("\n".join(lines) + "\n")
+          
+          print("Java source checks completed.")
+          for number, line in enumerate(lines, 1):
+              if "SecretKeySpec" in line or "installedForAction" in line:
+                  print(f"{number}: {line.strip()}")
+          PY
 
       - name: Build APK
         shell: bash
