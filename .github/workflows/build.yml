@@ -12,13 +12,14 @@ permissions:
 
 jobs:
   build:
+    name: Build Galery Px Debug APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Set up JDK
+      - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -30,7 +31,7 @@ jobs:
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
 
           if [ ! -d "$SDK" ]; then
-            echo "::error::Android SDK not found: $SDK"
+            echo "::error::Android SDK directory not found: $SDK"
             exit 1
           fi
 
@@ -62,18 +63,17 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Locate project
+      - name: Locate and extract Android project
         shell: bash
         run: |
-          if [ -f settings.gradle.kts ] || \
-             [ -f settings.gradle ]; then
-            PROJECT="."
+          if [ -f settings.gradle.kts ] || [ -f settings.gradle ]; then
+            PROJECT="$PWD"
           else
             ZIP="$(find . -maxdepth 1 -type f \
               -iname '*.zip' -print -quit)"
 
             if [ -z "$ZIP" ]; then
-              echo "::error::Project Gradle files and ZIP not found"
+              echo "::error::No project ZIP or Gradle settings found."
               exit 1
             fi
 
@@ -86,24 +86,51 @@ jobs:
               -printf '%h\n' | head -n 1)"
 
             if [ -z "$PROJECT" ]; then
-              echo "::error::Gradle settings not found inside ZIP"
+              echo "::error::Gradle settings not found inside ZIP."
               exit 1
             fi
           fi
 
+          if [ ! -f "$PROJECT/app/build.gradle.kts" ] && \
+             [ ! -f "$PROJECT/app/build.gradle" ]; then
+            echo "::error::App Gradle file not found."
+            exit 1
+          fi
+
           echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
           echo "Project directory: $PROJECT"
+
+      - name: Fix SecretKeySpec import
+        shell: bash
+        run: |
+          FILE="$PROJECT/app/src/main/java/id/pixelsoft/pixelvault/MainActivity.java"
+
+          if [ ! -f "$FILE" ]; then
+            echo "::error::MainActivity.java not found: $FILE"
+            exit 1
+          fi
+
+          sed -i \
+            's/import javax\.crypto\.SecretKeySpec;/import javax.crypto.spec.SecretKeySpec;/' \
+            "$FILE"
+
+          if grep -q \
+            'import javax.crypto.SecretKeySpec;' "$FILE"; then
+            echo "::error::SecretKeySpec import is still incorrect."
+            exit 1
+          fi
+
+          grep -n 'SecretKeySpec' "$FILE"
 
       - name: Build APK
         shell: bash
         run: |
           gradle -p "$PROJECT" assembleDebug --no-daemon
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: Galery-Px-debug-apk
-          path: |
-            **/build/outputs/apk/debug/*.apk
+          path: '**/build/outputs/apk/debug/*.apk'
           if-no-files-found: error
           retention-days: 14
