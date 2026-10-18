@@ -6,6 +6,9 @@ on:
     branches:
       - main
       - master
+    paths:
+      - '*.zip'
+      - '.github/workflows/build.yml'
 
 permissions:
   contents: read
@@ -25,64 +28,63 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Locate Android SDK
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
+
+      - name: Find and extract project ZIP
         shell: bash
         run: |
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          ZIP_FILE="$(find . -maxdepth 1 -type f \
+            -iname '*.zip' -print -quit)"
 
-          if [ ! -d "$SDK" ]; then
-            echo "::error::Android SDK directory not found."
+          if [ -z "$ZIP_FILE" ]; then
+            echo "::error::No project ZIP found in repository root."
             exit 1
           fi
 
-          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+          echo "Extracting: $ZIP_FILE"
+          mkdir -p project-src
+          unzip -oq "$ZIP_FILE" -d project-src
 
-          if [ -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
-            echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          fi
+          PROJECT_DIR="$(find "$PWD/project-src" \
+            -type f \( -name settings.gradle.kts \
+            -o -name settings.gradle \) \
+            -printf '%h\n' | head -n 1)"
 
-      - name: Install required SDK packages
-        shell: bash
-        run: |
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
-            -type f -name sdkmanager 2>/dev/null | head -n 1)"
-
-          if [ -n "$SDKMANAGER" ]; then
-            yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-            "$SDKMANAGER" \
-              "platform-tools" \
-              "platforms;android-35" \
-              "build-tools;35.0.0"
-          else
-            echo "::error::sdkmanager not found in Android SDK."
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "::error::Gradle settings not found inside ZIP."
+            find project-src -maxdepth 4 -type f
             exit 1
           fi
 
-      - name: Set up Gradle
+          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ] && \
+             [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
+            echo "::error::Android app Gradle file not found."
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project found: $PROJECT_DIR"
+
+      - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Verify project
-        shell: bash
+      - name: Build debug APK
         run: |
-          test -f settings.gradle.kts || \
-            test -f settings.gradle || \
-            { echo "::error::Gradle settings missing"; exit 1; }
+          gradle -p "$PROJECT_DIR" \
+            assembleDebug --no-daemon
 
-          test -f app/build.gradle.kts || \
-            test -f app/build.gradle || \
-            { echo "::error::App Gradle file missing"; exit 1; }
-
-      - name: Build APK
-        run: gradle assembleDebug --no-daemon
-
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: Galery-Px-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: project-src/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
