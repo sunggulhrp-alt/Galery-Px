@@ -1,4 +1,3 @@
-
 name: Build Galery Px APK
 
 on:
@@ -70,11 +69,10 @@ jobs:
           if [ -f settings.gradle.kts ] || [ -f settings.gradle ]; then
             PROJECT="$PWD"
           else
-            ZIP="$(find . -maxdepth 1 -type f \
-              -iname '*.zip' -print -quit)"
+            ZIP="$PWD/Galery-Px-project-fixed-v3.zip"
 
-            if [ -z "$ZIP" ]; then
-              echo "::error::Project ZIP not found"
+            if [ ! -f "$ZIP" ]; then
+              echo "::error::Project ZIP not found: $ZIP"
               exit 1
             fi
 
@@ -108,58 +106,39 @@ jobs:
           from pathlib import Path
           import re
           import os
-          
+
           project = Path(os.environ.get("PROJECT", ""))
           source = project / "app/src/main/java/id/pixelsoft/pixelvault/MainActivity.java"
-          
+
           if not source.is_file():
               raise SystemExit(f"MainActivity.java not found: {source}")
-          
+
           text = source.read_text()
-          
-          # Correct SecretKeySpec import.
+
           text = text.replace(
               "import javax.crypto.SecretKeySpec;",
               "import javax.crypto.spec.SecretKeySpec;"
           )
-          
+
           lines = text.splitlines()
-          found = False
-          
+
           for i, line in enumerate(lines):
               if "item.addView(button(installed?" in line:
-                  if "installedForAction" in line:
-                      found = True
-                      break
-                  
-                  indent = re.match(r"\s*", line).group(0)
-                  lines.insert(
-                      i,
-                      indent + "final boolean installedForAction = installed;"
-                  )
-                  
-                  lines[i + 1] = re.sub(
-                      r"\binstalled\b",
-                      "installedForAction",
-                      lines[i + 1]
-                  )
-                  
-                  found = True
+                  if "installedForAction" not in line:
+                      indent = re.match(r"\s*", line).group(0)
+                      lines.insert(
+                          i,
+                          indent + "final boolean installedForAction = installed;"
+                      )
+                      lines[i + 1] = re.sub(
+                          r"\binstalled\b",
+                          "installedForAction",
+                          lines[i + 1]
+                      )
                   break
-          
-          if not found:
-              if "installedForAction" not in text:
-                  raise SystemExit(
-                      "Could not locate the expected installed lambda expression. "
-                      "Source layout may differ; refusing an unsafe edit."
-                  )
-          
+
           source.write_text("\n".join(lines) + "\n")
-          
           print("Java source checks completed.")
-          for number, line in enumerate(lines, 1):
-              if "SecretKeySpec" in line or "installedForAction" in line:
-                  print(f"{number}: {line.strip()}")
           PY
 
       - name: Build APK
