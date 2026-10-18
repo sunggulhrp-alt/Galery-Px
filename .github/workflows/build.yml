@@ -69,7 +69,7 @@ jobs:
           if [ -f settings.gradle.kts ] || [ -f settings.gradle ]; then
             PROJECT="$PWD"
           else
-            ZIP="$PWD/Galery-Px-project-fixed-v3.zip"
+            ZIP="$PWD/Galery-Px-project-responsive-v4.zip"
 
             if [ ! -f "$ZIP" ]; then
               echo "::error::Project ZIP not found: $ZIP"
