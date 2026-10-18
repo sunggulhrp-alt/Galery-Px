@@ -1,5 +1,5 @@
 
-name: Build PixelVault APK
+name: Build Galery Px APK
 
 on:
   workflow_dispatch:
@@ -13,8 +13,6 @@ on:
       - '**.gradle'
       - '**.gradle.kts'
       - 'gradle.properties'
-      - 'settings.gradle'
-      - 'settings.gradle.kts'
       - 'gradle/wrapper/**'
       - '.github/workflows/build.yml'
 
@@ -23,7 +21,7 @@ permissions:
 
 jobs:
   build:
-    name: Build PixelVault Debug APK
+    name: Build Galery Px Debug APK
     runs-on: ubuntu-latest
 
     steps:
@@ -31,11 +29,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -47,34 +44,40 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Verify Gradle project
+      - name: Check Android project files
         run: |
-          if [ ! -f settings.gradle ] && [ ! -f settings.gradle.kts ]; then
-            echo "::error::File settings.gradle or settings.gradle.kts not found."
+          echo "Checking repository structure..."
+
+          if [ ! -f settings.gradle ] && \
+             [ ! -f settings.gradle.kts ]; then
+            echo "::error::Gradle settings file is missing."
+            echo "The Android project source code must be uploaded."
+            echo "Expected: settings.gradle or settings.gradle.kts"
             exit 1
           fi
 
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-          elif [ ! -f build.gradle ] && [ ! -f build.gradle.kts ]; then
-            echo "::error::Gradle wrapper and root Gradle build file not found."
+          if [ ! -f gradlew ] && \
+             [ ! -f build.gradle ] && \
+             [ ! -f build.gradle.kts ]; then
+            echo "::error::Gradle build files are missing."
             exit 1
           fi
+
+          echo "Project configuration found."
 
       - name: Build debug APK
         run: |
           if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
             ./gradlew assembleDebug --no-daemon
           else
             gradle assembleDebug --no-daemon
           fi
 
-      - name: Upload APK artifact
+      - name: Upload Galery Px APK
         uses: actions/upload-artifact@v4
         with:
-          name: PixelVault-debug-apk
-          path: |
-            **/build/outputs/apk/debug/*.apk
+          name: Galery-Px-debug-apk
+          path: '**/build/outputs/apk/debug/*.apk'
           if-no-files-found: error
           retention-days: 14
-
